@@ -74,7 +74,9 @@ async function processWithOpenAI(transcript: string, apiKey: string): Promise<AI
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.error?.message || 'OpenAI API error');
+    const statusCode = response.status;
+    const errorMsg = error.error?.message || `OpenAI API Fehler (Status ${statusCode})`;
+    throw new Error(errorMsg);
   }
 
   const data = await response.json();

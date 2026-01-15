@@ -334,8 +334,9 @@ export default function ThinkFlowApp() {
 
                     {/* Error Display */}
                     {processingError && (
-                      <div className="mt-3 p-3 bg-red-50 rounded-xl">
-                        <p className="text-red-600 text-sm font-medium">{processingError}</p>
+                      <div className="mt-3 p-3 bg-red-50 rounded-xl border border-red-200">
+                        <p className="text-red-700 text-sm font-semibold mb-1">Fehler:</p>
+                        <p className="text-red-600 text-sm">{processingError}</p>
                       </div>
                     )}
                   </div>
