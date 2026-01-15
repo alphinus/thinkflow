@@ -17,6 +17,7 @@ export default function ThinkFlowApp() {
   const [searchQuery, setSearchQuery] = useState('');
   const [waveHeights, setWaveHeights] = useState(Array(12).fill(8));
   const [manualTranscript, setManualTranscript] = useState('');
+  const [processingError, setProcessingError] = useState<string | null>(null);
 
   const { config, hasValidConfig } = useApiConfig();
   const {
@@ -58,6 +59,7 @@ export default function ThinkFlowApp() {
   const processWithAI = async () => {
     if (!currentTranscript.trim()) return;
     setIsProcessing(true);
+    setProcessingError(null);
 
     try {
       const response = await fetch('/api/process-thought', {
@@ -73,7 +75,8 @@ export default function ThinkFlowApp() {
       const data = await response.json();
 
       if (data.error) {
-        throw new Error(data.error);
+        setProcessingError(data.error);
+        return;
       }
 
       const result = data.result;
@@ -98,7 +101,9 @@ export default function ThinkFlowApp() {
       setStructuredThought(newThought);
     } catch (error) {
       console.error('AI processing error:', error);
-      // Show error to user
+      setProcessingError(
+        error instanceof Error ? error.message : 'Unbekannter Fehler bei der Verarbeitung'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -320,11 +325,19 @@ export default function ThinkFlowApp() {
                         resetTranscript();
                         setManualTranscript('');
                         setStructuredThought(null);
+                        setProcessingError(null);
                       }}
                       className="w-full py-2 text-gray-500 text-sm font-medium hover:text-gray-700"
                     >
                       Verwerfen
                     </button>
+
+                    {/* Error Display */}
+                    {processingError && (
+                      <div className="mt-3 p-3 bg-red-50 rounded-xl">
+                        <p className="text-red-600 text-sm font-medium">{processingError}</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
