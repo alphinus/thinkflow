@@ -192,7 +192,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-gray-900">Google Gemini</p>
-                  <p className="text-sm text-gray-500">Gemini 1.5 Flash - kostenlos!</p>
+                  <p className="text-sm text-gray-500">Gemini 2.5 Flash-Lite - kostenlos!</p>
                 </div>
                 {selectedProvider === 'google' && (
                   <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
