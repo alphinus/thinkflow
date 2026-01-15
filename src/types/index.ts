@@ -2,7 +2,7 @@
 // ThinkFlow Type Definitions
 // ============================================================
 
-export type AIProvider = 'openai' | 'anthropic';
+export type AIProvider = 'openai' | 'anthropic' | 'google';
 
 export interface APIConfig {
   provider: AIProvider | null;

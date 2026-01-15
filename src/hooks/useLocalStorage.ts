@@ -38,7 +38,7 @@ export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T 
 // Hook specifically for API config with validation status
 export function useApiConfig() {
   const [config, setConfig] = useLocalStorage<{
-    provider: 'openai' | 'anthropic' | null;
+    provider: 'openai' | 'anthropic' | 'google' | null;
     apiKey: string | null;
     isValid: boolean;
   }>('thinkflow_api_config', {

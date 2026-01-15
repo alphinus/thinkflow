@@ -54,6 +54,29 @@ export async function POST(request: NextRequest) {
           error: error.error?.message || 'Ungültiger Anthropic API Key',
         });
       }
+    } else if (provider === 'google') {
+      // Validate Google Gemini API Key with a minimal request
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Hi' }] }],
+            generationConfig: { maxOutputTokens: 10 },
+          }),
+        }
+      );
+
+      if (response.ok) {
+        return NextResponse.json({ valid: true });
+      } else {
+        const error = await response.json().catch(() => ({}));
+        return NextResponse.json({
+          valid: false,
+          error: error.error?.message || 'Ungültiger Google Gemini API Key',
+        });
+      }
     } else {
       return NextResponse.json(
         { valid: false, error: 'Unbekannter Provider' },

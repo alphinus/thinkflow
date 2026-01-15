@@ -6,8 +6,8 @@ import { useApiConfig } from '@/hooks/useLocalStorage';
 
 export default function SettingsPage() {
   const { config, updateConfig, clearConfig, hasValidConfig } = useApiConfig();
-  const [selectedProvider, setSelectedProvider] = useState<'openai' | 'anthropic'>(
-    config.provider || 'openai'
+  const [selectedProvider, setSelectedProvider] = useState<'openai' | 'anthropic' | 'google'>(
+    config.provider || 'google'
   );
   const [apiKey, setApiKey] = useState(config.apiKey || '');
   const [isValidating, setIsValidating] = useState(false);
@@ -112,7 +112,7 @@ export default function SettingsPage() {
               </p>
               <p className={`text-sm ${hasValidConfig ? 'text-green-600' : 'text-amber-600'}`}>
                 {hasValidConfig
-                  ? `${config.provider === 'openai' ? 'OpenAI' : 'Anthropic'} verbunden`
+                  ? `${config.provider === 'openai' ? 'OpenAI' : config.provider === 'anthropic' ? 'Anthropic' : 'Google Gemini'} verbunden`
                   : 'Hinterlege einen API Key für echte KI-Verarbeitung'}
               </p>
             </div>
@@ -175,6 +175,32 @@ export default function SettingsPage() {
                 )}
               </div>
             </button>
+
+            <button
+              onClick={() => setSelectedProvider('google')}
+              className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
+                selectedProvider === 'google'
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                  selectedProvider === 'google' ? 'bg-blue-500' : 'bg-gray-200'
+                }`}>
+                  <span className="text-lg">✨</span>
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-gray-900">Google Gemini</p>
+                  <p className="text-sm text-gray-500">Gemini 2.0 Flash - kostenlos!</p>
+                </div>
+                {selectedProvider === 'google' && (
+                  <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </div>
+            </button>
           </div>
         </div>
 
@@ -185,13 +211,13 @@ export default function SettingsPage() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm text-gray-600 mb-2">
-                {selectedProvider === 'openai' ? 'OpenAI API Key' : 'Anthropic API Key'}
+                {selectedProvider === 'openai' ? 'OpenAI API Key' : selectedProvider === 'anthropic' ? 'Anthropic API Key' : 'Google Gemini API Key'}
               </label>
               <input
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={selectedProvider === 'openai' ? 'sk-...' : 'sk-ant-...'}
+                placeholder={selectedProvider === 'openai' ? 'sk-...' : selectedProvider === 'anthropic' ? 'sk-ant-...' : 'AIza...'}
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               />
             </div>
@@ -241,6 +267,15 @@ export default function SettingsPage() {
         <div className="bg-blue-50 rounded-2xl p-5">
           <h3 className="font-semibold text-blue-900 mb-2">Wo bekomme ich einen API Key?</h3>
           <ul className="space-y-2 text-sm text-blue-700">
+            <li className="flex items-start gap-2">
+              <span>•</span>
+              <span>
+                <strong>Google Gemini (kostenlos!):</strong>{' '}
+                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="underline">
+                  aistudio.google.com/apikey
+                </a>
+              </span>
+            </li>
             <li className="flex items-start gap-2">
               <span>•</span>
               <span>

@@ -36,6 +36,8 @@ export async function POST(request: NextRequest) {
       aiResponse = await processWithOpenAI(transcript, apiKey);
     } else if (provider === 'anthropic') {
       aiResponse = await processWithAnthropic(transcript, apiKey);
+    } else if (provider === 'google') {
+      aiResponse = await processWithGoogle(transcript, apiKey);
     } else {
       return NextResponse.json(
         { error: 'Unbekannter Provider' },
@@ -125,6 +127,47 @@ async function processWithAnthropic(transcript: string, apiKey: string): Promise
                     [null, content];
 
   return JSON.parse(jsonMatch[1] || content);
+}
+
+async function processWithGoogle(transcript: string, apiKey: string): Promise<AIResponse> {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: USER_PROMPT_TEMPLATE(transcript) }],
+          },
+        ],
+        systemInstruction: {
+          parts: [{ text: SYSTEM_PROMPT }],
+        },
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.7,
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    const statusCode = response.status;
+    const errorMsg = error.error?.message || `Google Gemini API Fehler (Status ${statusCode})`;
+    throw new Error(errorMsg);
+  }
+
+  const data = await response.json();
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!content) {
+    throw new Error('Keine Antwort von Google Gemini');
+  }
+
+  return JSON.parse(content);
 }
 
 function generateDemoResponse(transcript: string): AIResponse {
