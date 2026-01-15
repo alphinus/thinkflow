@@ -44,6 +44,8 @@ export interface UseSpeechRecognitionReturn {
   resetTranscript: () => void;
 }
 
+const MAX_RESTARTS = 50; // Allow many restarts for long recordings
+
 export function useSpeechRecognition(): UseSpeechRecognitionReturn {
   const [transcript, setTranscript] = useState('');
   const [interimTranscript, setInterimTranscript] = useState('');
@@ -52,6 +54,14 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
   const [error, setError] = useState<string | null>(null);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const manualStopRef = useRef(false);
+  const restartCountRef = useRef(0);
+  const transcriptRef = useRef('');
+
+  // Keep transcriptRef in sync
+  useEffect(() => {
+    transcriptRef.current = transcript;
+  }, [transcript]);
 
   // Check browser support on mount
   useEffect(() => {
@@ -82,6 +92,7 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
       let finalTranscript = '';
       let currentInterim = '';
 
+      // Only process new results from resultIndex onwards
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
@@ -98,31 +109,72 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.error('Speech recognition error:', event.error);
+      console.log('Speech recognition event:', event.error);
+
+      // Ignore no-speech and aborted errors - these are normal during continuous listening
+      if (event.error === 'no-speech' || event.error === 'aborted') {
+        return;
+      }
 
       switch (event.error) {
         case 'not-allowed':
           setError('Mikrofon-Zugriff wurde verweigert. Bitte erlaube den Zugriff in den Browser-Einstellungen.');
-          break;
-        case 'no-speech':
-          setError('Keine Sprache erkannt. Bitte sprich deutlicher.');
+          manualStopRef.current = true; // Stop retrying
           break;
         case 'audio-capture':
           setError('Kein Mikrofon gefunden. Bitte schließe ein Mikrofon an.');
+          manualStopRef.current = true;
           break;
         case 'network':
           setError('Netzwerkfehler. Bitte überprüfe deine Internetverbindung.');
           break;
         default:
-          setError(`Fehler bei der Spracherkennung: ${event.error}`);
+          // Don't show error for minor issues
+          console.warn(`Speech recognition error: ${event.error}`);
       }
-
-      setIsListening(false);
     };
 
     recognition.onend = () => {
-      setIsListening(false);
       setInterimTranscript('');
+
+      // Only stop if user manually stopped or max restarts reached
+      if (manualStopRef.current) {
+        setIsListening(false);
+        recognitionRef.current = null;
+        restartCountRef.current = 0;
+        return;
+      }
+
+      // Auto-restart if not manually stopped (browser timeout)
+      if (restartCountRef.current < MAX_RESTARTS) {
+        restartCountRef.current++;
+
+        setTimeout(() => {
+          if (!manualStopRef.current && recognitionRef.current) {
+            try {
+              recognitionRef.current.start();
+            } catch (e) {
+              // If restart fails, create new instance
+              console.log('Recreating recognition instance');
+              const newRecognition = initRecognition();
+              if (newRecognition) {
+                recognitionRef.current = newRecognition;
+                try {
+                  newRecognition.start();
+                } catch (e2) {
+                  console.error('Failed to restart recognition:', e2);
+                  setIsListening(false);
+                }
+              }
+            }
+          }
+        }, 100);
+      } else {
+        // Max restarts reached
+        setIsListening(false);
+        recognitionRef.current = null;
+        restartCountRef.current = 0;
+      }
     };
 
     return recognition;
@@ -134,9 +186,17 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
       return;
     }
 
+    // Reset flags
+    manualStopRef.current = false;
+    restartCountRef.current = 0;
+
     // Stop any existing recognition
     if (recognitionRef.current) {
-      recognitionRef.current.abort();
+      try {
+        recognitionRef.current.abort();
+      } catch (e) {
+        // Ignore
+      }
     }
 
     // Create new recognition instance
@@ -158,10 +218,17 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
   }, [isSupported, initRecognition]);
 
   const stopListening = useCallback(() => {
+    // Set flag BEFORE stopping to prevent auto-restart
+    manualStopRef.current = true;
+
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        // Ignore errors when stopping
+      }
     }
+
     setIsListening(false);
     setInterimTranscript('');
   }, []);
@@ -170,13 +237,19 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
     setTranscript('');
     setInterimTranscript('');
     setError(null);
+    transcriptRef.current = '';
   }, []);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      manualStopRef.current = true;
       if (recognitionRef.current) {
-        recognitionRef.current.abort();
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {
+          // Ignore
+        }
       }
     };
   }, []);
