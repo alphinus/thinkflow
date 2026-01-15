@@ -1,0 +1,637 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useLocalStorage, useApiConfig } from '@/hooks/useLocalStorage';
+import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
+import { existingIdeas } from '@/lib/ideas';
+import { CATEGORIES, type StructuredThought, type Idea, type TabType } from '@/types';
+
+export default function ThinkFlowApp() {
+  const [activeTab, setActiveTab] = useState<TabType>('record');
+  const [structuredThought, setStructuredThought] = useState<StructuredThought | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [savedThoughts, setSavedThoughts] = useLocalStorage<StructuredThought[]>('thinkflow_saved_thoughts', []);
+  const [selectedIdea, setSelectedIdea] = useState<Idea | null>(null);
+  const [filterCategory, setFilterCategory] = useState('Alle');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [waveHeights, setWaveHeights] = useState(Array(12).fill(8));
+  const [manualTranscript, setManualTranscript] = useState('');
+
+  const { config, hasValidConfig } = useApiConfig();
+  const {
+    transcript,
+    interimTranscript,
+    isListening,
+    isSupported,
+    error: speechError,
+    startListening,
+    stopListening,
+    resetTranscript,
+  } = useSpeechRecognition();
+
+  // Combine speech transcript with manual input
+  const currentTranscript = transcript || manualTranscript;
+
+  // Wave animation
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isListening) {
+      interval = setInterval(() => {
+        setWaveHeights(prev => prev.map(() => Math.random() * 24 + 8));
+      }, 150);
+    }
+    return () => clearInterval(interval);
+  }, [isListening]);
+
+  const toggleRecording = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      resetTranscript();
+      setManualTranscript('');
+      setStructuredThought(null);
+      startListening();
+    }
+  };
+
+  const processWithAI = async () => {
+    if (!currentTranscript.trim()) return;
+    setIsProcessing(true);
+
+    try {
+      const response = await fetch('/api/process-thought', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript: currentTranscript,
+          provider: config.provider,
+          apiKey: config.apiKey,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      const result = data.result;
+
+      // Create structured thought from AI response
+      const newThought: StructuredThought = {
+        id: Date.now(),
+        title: result.title,
+        category: result.category,
+        summary: result.summary,
+        keyPoints: result.keyPoints,
+        tasks: (result.tasks || []).map((t: { text: string; priority: string }, i: number) => ({
+          id: i + 1,
+          text: t.text,
+          priority: t.priority as 'Hoch' | 'Mittel' | 'Normal',
+          completed: false,
+        })),
+        createdAt: new Date().toISOString(),
+        relatedIdeas: existingIdeas.filter(i => i.category === result.category).slice(0, 3),
+      };
+
+      setStructuredThought(newThought);
+    } catch (error) {
+      console.error('AI processing error:', error);
+      // Show error to user
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const saveThought = () => {
+    if (structuredThought) {
+      setSavedThoughts(prev => [structuredThought, ...prev]);
+      setActiveTab('thoughts');
+      setStructuredThought(null);
+      resetTranscript();
+      setManualTranscript('');
+    }
+  };
+
+  // Filter and search
+  const filteredIdeas = existingIdeas.filter(idea => {
+    const matchesCategory = filterCategory === 'Alle' || idea.category === filterCategory;
+    const matchesSearch = searchQuery === '' ||
+      idea.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      idea.description.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  // Unique categories
+  const uniqueCategories = [...new Set(existingIdeas.map(i => i.category))];
+
+  return (
+    <div className="min-h-screen bg-gray-50 font-sans max-w-md mx-auto relative overflow-hidden">
+      {/* Status Bar */}
+      <div className="bg-white px-6 py-2 flex justify-between items-center text-sm font-semibold">
+        <span>9:41</span>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-0.5">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="w-1 bg-black rounded-sm" style={{ height: `${4 + i * 2}px` }} />
+            ))}
+          </div>
+          <span className="text-xs">5G</span>
+          <div className="w-7 h-3 border border-black rounded-sm relative">
+            <div className="absolute inset-0.5 bg-black rounded-xs" style={{ width: '80%' }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Header */}
+      <header className="bg-white px-6 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">ThinkFlow</h1>
+            <p className="text-gray-500 text-sm">Gedanken sprechen. Struktur erhalten.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* API Status Indicator */}
+            <div className={`px-2 py-1 rounded-full text-xs font-semibold ${
+              hasValidConfig
+                ? 'bg-green-100 text-green-600'
+                : 'bg-amber-100 text-amber-600'
+            }`}>
+              {hasValidConfig ? 'KI aktiv' : 'Demo'}
+            </div>
+            <Link
+              href="/settings"
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
+            >
+              <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="pb-28 overflow-y-auto" style={{ height: 'calc(100vh - 180px)' }}>
+        {/* Record Tab */}
+        {activeTab === 'record' && (
+          <div className="p-6">
+            <div className="bg-white rounded-3xl shadow-sm p-8 mb-6">
+              <div className="flex flex-col items-center">
+                {/* Speech Recognition Support Warning */}
+                {!isSupported && (
+                  <div className="mb-4 p-3 bg-amber-50 rounded-xl text-center">
+                    <p className="text-amber-700 text-sm">
+                      Spracherkennung nicht unterstützt. Du kannst stattdessen Text eingeben.
+                    </p>
+                  </div>
+                )}
+
+                <button
+                  onClick={toggleRecording}
+                  disabled={!isSupported}
+                  className={`w-28 h-28 rounded-full flex items-center justify-center transition-all duration-300 transform active:scale-95 ${
+                    isListening
+                      ? 'bg-red-500 shadow-lg shadow-red-200 animate-pulse-ring'
+                      : isSupported
+                        ? 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg shadow-blue-200 hover:shadow-xl'
+                        : 'bg-gray-300 cursor-not-allowed'
+                  }`}
+                >
+                  {isListening ? (
+                    <div className="w-8 h-8 bg-white rounded-md" />
+                  ) : (
+                    <svg className="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5z" />
+                      <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+                    </svg>
+                  )}
+                </button>
+
+                <p className="mt-5 text-lg font-semibold text-gray-900">
+                  {isListening ? 'Aufnahme läuft...' : 'Tippe zum Sprechen'}
+                </p>
+                <p className="text-gray-400 text-sm mt-1">
+                  {isListening ? 'Tippe erneut zum Stoppen' : 'Sprich deine Gedanken einfach aus'}
+                </p>
+
+                {/* Speech Error */}
+                {speechError && (
+                  <p className="mt-3 text-red-500 text-sm text-center">{speechError}</p>
+                )}
+
+                {/* Wave Animation */}
+                {isListening && (
+                  <div className="flex items-end gap-1 mt-5 h-8">
+                    {waveHeights.map((h, i) => (
+                      <div
+                        key={i}
+                        className="w-1 bg-red-500 rounded-full transition-all duration-150"
+                        style={{ height: `${h}px` }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Interim transcript */}
+                {interimTranscript && (
+                  <p className="mt-4 text-gray-400 text-sm italic">{interimTranscript}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Manual Text Input */}
+            {!isListening && !currentTranscript && (
+              <div className="mb-6">
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                  Oder Text eingeben
+                </label>
+                <textarea
+                  value={manualTranscript}
+                  onChange={(e) => setManualTranscript(e.target.value)}
+                  placeholder="Tippe hier deine Gedanken ein..."
+                  className="w-full px-4 py-3 bg-white rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm resize-none"
+                  rows={3}
+                />
+              </div>
+            )}
+
+            {/* Quick Ideas */}
+            <div className="mb-6">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                Schnellstart mit einer Idee
+              </h3>
+              <div className="flex gap-2 overflow-x-auto pb-2 -mx-6 px-6 scrollbar-hide">
+                {existingIdeas.slice(20, 28).map((idea) => (
+                  <button
+                    key={idea.id}
+                    onClick={() => {
+                      setManualTranscript(`Ich möchte an "${idea.title}" arbeiten: ${idea.description}`);
+                    }}
+                    className="flex-shrink-0 flex items-center gap-2 px-3 py-2 bg-white rounded-xl shadow-sm text-sm hover:shadow-md transition-shadow"
+                  >
+                    <span>{idea.icon}</span>
+                    <span className="text-gray-700 font-medium whitespace-nowrap">{idea.title}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Transcript Display */}
+            {currentTranscript && (
+              <div className="bg-white rounded-2xl shadow-sm p-5 mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-gray-900">Transkript</h3>
+                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
+                    {currentTranscript.split(' ').length} Wörter
+                  </span>
+                </div>
+                <p className="text-gray-600 leading-relaxed text-sm">{currentTranscript}</p>
+
+                {!isListening && (
+                  <div className="mt-5 space-y-2">
+                    <button
+                      onClick={processWithAI}
+                      disabled={isProcessing}
+                      className={`w-full py-3.5 rounded-xl font-semibold text-sm transition-all transform active:scale-98 ${
+                        isProcessing
+                          ? 'bg-gray-100 text-gray-400'
+                          : 'bg-black text-white hover:bg-gray-800'
+                      }`}
+                    >
+                      {isProcessing ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          KI strukturiert...
+                        </span>
+                      ) : (
+                        <span>
+                          {hasValidConfig ? '✨ Mit KI strukturieren' : '✨ Im Demo-Modus strukturieren'}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => {
+                        resetTranscript();
+                        setManualTranscript('');
+                        setStructuredThought(null);
+                      }}
+                      className="w-full py-2 text-gray-500 text-sm font-medium hover:text-gray-700"
+                    >
+                      Verwerfen
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Structured Result */}
+            {structuredThought && (
+              <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                <div className={`p-5 ${CATEGORIES[structuredThought.category]?.lightColor || 'bg-gray-50'}`}>
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full text-white ${CATEGORIES[structuredThought.category]?.color || 'bg-gray-500'}`}>
+                    {structuredThought.category}
+                  </span>
+                  <h3 className="text-lg font-bold text-gray-900 mt-2">{structuredThought.title}</h3>
+                </div>
+
+                <div className="p-5 space-y-5">
+                  {/* Key Points */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Kernpunkte</h4>
+                    <ul className="space-y-2">
+                      {structuredThought.keyPoints.map((point, i) => (
+                        <li key={i} className="flex items-start gap-2.5">
+                          <span className={`w-5 h-5 rounded-full ${CATEGORIES[structuredThought.category]?.lightColor} ${CATEGORIES[structuredThought.category]?.textColor} flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5`}>
+                            {i + 1}
+                          </span>
+                          <span className="text-gray-700 text-sm">{point}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Tasks */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Aufgaben</h4>
+                    <ul className="space-y-2">
+                      {structuredThought.tasks.map((task) => (
+                        <li key={task.id} className="flex items-center gap-2.5 p-2.5 bg-gray-50 rounded-xl">
+                          <button
+                            onClick={() => {
+                              setStructuredThought(prev => prev ? ({
+                                ...prev,
+                                tasks: prev.tasks.map(t =>
+                                  t.id === task.id ? { ...t, completed: !t.completed } : t
+                                ),
+                              }) : null);
+                            }}
+                            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
+                              task.completed
+                                ? 'bg-green-500 border-green-500'
+                                : 'border-gray-300 hover:border-gray-400'
+                            }`}
+                          >
+                            {task.completed && (
+                              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </button>
+                          <span className={`flex-1 text-sm ${task.completed ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                            {task.text}
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            task.priority === 'Hoch' ? 'bg-red-100 text-red-600' :
+                            task.priority === 'Mittel' ? 'bg-amber-100 text-amber-600' :
+                            'bg-gray-100 text-gray-500'
+                          }`}>
+                            {task.priority}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Related Ideas */}
+                  {structuredThought.relatedIdeas?.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Verwandte Ideen</h4>
+                      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+                        {structuredThought.relatedIdeas.map((idea) => (
+                          <button
+                            key={idea.id}
+                            onClick={() => {
+                              setSelectedIdea(idea);
+                              setActiveTab('ideas');
+                            }}
+                            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-full text-xs hover:bg-gray-200 transition-colors"
+                          >
+                            <span>{idea.icon}</span>
+                            <span className="text-gray-700 font-medium">{idea.title}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={saveThought}
+                    className="w-full py-3.5 bg-green-500 text-white rounded-xl font-semibold text-sm hover:bg-green-600 transition-colors transform active:scale-98"
+                  >
+                    Gedanken speichern
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Thoughts Tab */}
+        {activeTab === 'thoughts' && (
+          <div className="p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Meine Gedanken</h2>
+
+            {savedThoughts.length === 0 ? (
+              <div className="bg-white rounded-2xl p-10 text-center">
+                <div className="w-14 h-14 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  </svg>
+                </div>
+                <p className="text-gray-500 font-medium">Noch keine Gedanken</p>
+                <p className="text-gray-400 text-sm mt-1">Sprich deine Ideen ein und strukturiere sie</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {savedThoughts.map((thought) => (
+                  <div key={thought.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                    <div className={`p-4 ${CATEGORIES[thought.category]?.lightColor || 'bg-gray-50'}`}>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full text-white ${CATEGORIES[thought.category]?.color || 'bg-gray-500'}`}>
+                            {thought.category}
+                          </span>
+                          <h3 className="font-bold text-gray-900 mt-1.5 text-sm">{thought.title}</h3>
+                        </div>
+                        <span className="text-xs text-gray-400">
+                          {new Date(thought.createdAt).toLocaleDateString('de-DE')}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      <div className="flex items-center gap-4 text-xs text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                          </svg>
+                          {thought.tasks?.length || 0} Aufgaben
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          {thought.tasks?.filter(t => t.completed).length || 0} erledigt
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Ideas Tab */}
+        {activeTab === 'ideas' && (
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Ideen-Bibliothek</h2>
+              <span className="text-sm text-gray-500">{filteredIdeas.length} von {existingIdeas.length}</span>
+            </div>
+
+            {/* Search */}
+            <div className="relative mb-4">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Ideen durchsuchen..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-white rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            {/* Category Filter */}
+            <div className="flex gap-2 overflow-x-auto pb-3 mb-4 -mx-6 px-6 scrollbar-hide">
+              <button
+                onClick={() => setFilterCategory('Alle')}
+                className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                  filterCategory === 'Alle'
+                    ? 'bg-black text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                Alle ({existingIdeas.length})
+              </button>
+              {uniqueCategories.map((cat) => {
+                const count = existingIdeas.filter(i => i.category === cat).length;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setFilterCategory(cat)}
+                    className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                      filterCategory === cat
+                        ? `${CATEGORIES[cat]?.color || 'bg-gray-500'} text-white`
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {cat} ({count})
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Ideas List */}
+            <div className="space-y-3">
+              {filteredIdeas.map((idea) => (
+                <button
+                  key={idea.id}
+                  onClick={() => setSelectedIdea(selectedIdea?.id === idea.id ? null : idea)}
+                  className={`w-full text-left bg-white rounded-2xl shadow-sm overflow-hidden transition-all ${
+                    selectedIdea?.id === idea.id ? 'ring-2 ring-blue-500' : 'hover:shadow-md'
+                  }`}
+                >
+                  <div className={`p-4 ${CATEGORIES[idea.category]?.lightColor || 'bg-gray-50'}`}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{idea.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full text-white ${CATEGORIES[idea.category]?.color || 'bg-gray-500'}`}>
+                            {idea.category}
+                          </span>
+                          {idea.id > 20 && (
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
+                              NEU
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="font-bold text-gray-900 mt-1 text-sm truncate">{idea.title}</h3>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <p className="text-gray-600 text-xs leading-relaxed">{idea.description}</p>
+
+                    {selectedIdea?.id === idea.id && (
+                      <div className="mt-3 pt-3 border-t border-gray-100">
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setManualTranscript(`Ich möchte an "${idea.title}" arbeiten: ${idea.description}`);
+                            setActiveTab('record');
+                          }}
+                          className="w-full py-2.5 bg-black text-white rounded-xl font-semibold text-xs text-center cursor-pointer hover:bg-gray-800 transition-colors"
+                        >
+                          Diese Idee weiterentwickeln
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {filteredIdeas.length === 0 && (
+              <div className="text-center py-10">
+                <p className="text-gray-500">Keine Ideen gefunden</p>
+                <button
+                  onClick={() => { setFilterCategory('Alle'); setSearchQuery(''); }}
+                  className="mt-2 text-blue-500 text-sm font-medium"
+                >
+                  Filter zurücksetzen
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* Tab Bar */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-lg border-t border-gray-200 px-8 pt-2 pb-6 pb-safe max-w-md mx-auto">
+        <div className="flex justify-around">
+          {[
+            { id: 'record' as TabType, icon: 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z', label: 'Aufnehmen' },
+            { id: 'thoughts' as TabType, icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', label: 'Gedanken', badge: savedThoughts.length || null },
+            { id: 'ideas' as TabType, icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10', label: 'Ideen', badge: existingIdeas.length },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`relative flex flex-col items-center py-1 px-3 transition-colors ${
+                activeTab === tab.id ? 'text-blue-500' : 'text-gray-400'
+              }`}
+            >
+              <svg className="w-6 h-6" fill={activeTab === tab.id ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
+              </svg>
+              <span className="text-[10px] mt-0.5 font-medium">{tab.label}</span>
+              {tab.badge && (
+                <span className={`absolute -top-0.5 right-0 min-w-[18px] h-[18px] ${tab.id === 'ideas' ? 'bg-blue-500' : 'bg-red-500'} text-white text-[10px] rounded-full flex items-center justify-center px-1 font-semibold`}>
+                  {tab.badge}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </nav>
+    </div>
+  );
+}
