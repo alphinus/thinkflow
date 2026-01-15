@@ -60,7 +60,7 @@ export interface CategoryStyle {
   textColor: string;
 }
 
-export type TabType = 'record' | 'thoughts' | 'ideas' | 'settings';
+export type TabType = 'record' | 'thoughts' | 'ideas' | 'dashboard' | 'settings';
 
 // Storage Keys
 export const STORAGE_KEYS = {

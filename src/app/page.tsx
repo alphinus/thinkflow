@@ -891,6 +891,151 @@ export default function ThinkFlowApp() {
             )}
           </div>
         )}
+
+        {/* Dashboard Tab */}
+        {activeTab === 'dashboard' && (
+          <div className="p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Übersicht</h2>
+
+            {/* Stats Cards */}
+            {(() => {
+              const totalThoughts = savedThoughts.length;
+              const activeIdeas = allIdeasForPicker.filter(idea => getThoughtsForIdea(idea.id).length > 0);
+              const allTasks = savedThoughts.flatMap(t => t.tasks);
+              const completedTasks = allTasks.filter(t => t.completed).length;
+              const totalTasks = allTasks.length;
+              const overallProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+              // Category distribution
+              const categoryCount: Record<string, number> = {};
+              savedThoughts.forEach(thought => {
+                categoryCount[thought.category] = (categoryCount[thought.category] || 0) + 1;
+              });
+              const sortedCategories = Object.entries(categoryCount)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+
+              return (
+                <>
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-3 gap-3 mb-6">
+                    <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
+                      <div className="text-2xl font-bold text-gray-900">{totalThoughts}</div>
+                      <div className="text-xs text-gray-500 mt-1">Gedanken</div>
+                    </div>
+                    <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
+                      <div className="text-2xl font-bold text-gray-900">{activeIdeas.length}</div>
+                      <div className="text-xs text-gray-500 mt-1">Aktive Ideen</div>
+                    </div>
+                    <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
+                      <div className="text-2xl font-bold text-gray-900">
+                        <span className="text-green-600">{completedTasks}</span>
+                        <span className="text-gray-400 text-lg">/{totalTasks}</span>
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">Aufgaben</div>
+                    </div>
+                  </div>
+
+                  {/* Overall Progress */}
+                  <div className="bg-white rounded-2xl p-5 shadow-sm mb-6">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-gray-900">Gesamtfortschritt</h3>
+                      <span className={`text-lg font-bold ${overallProgress === 100 ? 'text-green-600' : 'text-blue-600'}`}>
+                        {overallProgress}%
+                      </span>
+                    </div>
+                    <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-700 ${
+                          overallProgress === 100 ? 'bg-green-500' : 'bg-gradient-to-r from-blue-400 to-blue-600'
+                        }`}
+                        style={{ width: `${overallProgress}%` }}
+                      />
+                    </div>
+                    {totalTasks === 0 && (
+                      <p className="text-xs text-gray-400 mt-2 text-center">Noch keine Aufgaben erstellt</p>
+                    )}
+                  </div>
+
+                  {/* Active Ideas */}
+                  <div className="bg-white rounded-2xl shadow-sm overflow-hidden mb-6">
+                    <div className="p-4 border-b border-gray-100">
+                      <h3 className="font-semibold text-gray-900">Aktive Ideen</h3>
+                    </div>
+                    {activeIdeas.length > 0 ? (
+                      <div className="divide-y divide-gray-50">
+                        {activeIdeas.slice(0, 5).map((idea) => {
+                          const ideaThoughts = getThoughtsForIdea(idea.id);
+                          const ideaTasks = ideaThoughts.flatMap(t => t.tasks);
+                          const ideaCompleted = ideaTasks.filter(t => t.completed).length;
+                          const ideaTotal = ideaTasks.length;
+                          const ideaProgress = ideaTotal > 0 ? Math.round((ideaCompleted / ideaTotal) * 100) : 0;
+
+                          return (
+                            <button
+                              key={idea.id}
+                              onClick={() => {
+                                setSelectedDynamicIdea(idea);
+                              }}
+                              className="w-full p-4 flex items-center gap-3 hover:bg-gray-50 transition-colors"
+                            >
+                              <span className="text-xl">{idea.icon}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-gray-900 text-sm truncate">{idea.title}</p>
+                                <p className="text-xs text-gray-400">{ideaThoughts.length} Gedanken</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="w-16 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${ideaProgress === 100 ? 'bg-green-500' : 'bg-blue-500'}`}
+                                    style={{ width: `${ideaProgress}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs font-medium text-gray-500 w-8">
+                                  {ideaTotal > 0 ? `${ideaCompleted}/${ideaTotal}` : '-'}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="p-6 text-center">
+                        <p className="text-gray-400 text-sm">Noch keine aktiven Ideen</p>
+                        <p className="text-gray-300 text-xs mt-1">Verknüpfe Gedanken mit Ideen</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Category Distribution */}
+                  {sortedCategories.length > 0 && (
+                    <div className="bg-white rounded-2xl p-5 shadow-sm">
+                      <h3 className="font-semibold text-gray-900 mb-4">Kategorien</h3>
+                      <div className="space-y-3">
+                        {sortedCategories.map(([category, count]) => {
+                          const percentage = Math.round((count / totalThoughts) * 100);
+                          return (
+                            <div key={category} className="flex items-center gap-3">
+                              <span className={`w-3 h-3 rounded-full ${CATEGORIES[category]?.color || 'bg-gray-400'}`} />
+                              <span className="text-sm text-gray-700 flex-1">{category}</span>
+                              <div className="w-24 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${CATEGORIES[category]?.color || 'bg-gray-400'}`}
+                                  style={{ width: `${percentage}%` }}
+                                />
+                              </div>
+                              <span className="text-xs text-gray-500 w-8 text-right">{percentage}%</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        )}
       </main>
 
       {/* Thought Detail Bottom Sheet */}
@@ -1102,6 +1247,7 @@ export default function ThinkFlowApp() {
             { id: 'record' as TabType, icon: 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z', label: 'Aufnehmen' },
             { id: 'thoughts' as TabType, icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', label: 'Gedanken', badge: savedThoughts.length || null },
             { id: 'ideas' as TabType, icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10', label: 'Ideen', badge: userIdeas.length + existingIdeas.length },
+            { id: 'dashboard' as TabType, icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z', label: 'Übersicht' },
           ].map((tab) => (
             <button
               key={tab.id}
