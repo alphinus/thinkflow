@@ -46,8 +46,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ result: aiResponse });
   } catch (error) {
     console.error('Process thought error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unbekannter Fehler';
     return NextResponse.json(
-      { error: 'Fehler bei der Verarbeitung' },
+      { error: `Fehler: ${errorMessage}` },
       { status: 500 }
     );
   }
