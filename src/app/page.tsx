@@ -285,22 +285,6 @@ export default function ThinkFlowApp() {
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans max-w-md mx-auto relative overflow-hidden">
-      {/* Status Bar */}
-      <div className="bg-white px-6 py-2 flex justify-between items-center text-sm font-semibold">
-        <span>9:41</span>
-        <div className="flex items-center gap-2">
-          <div className="flex gap-0.5">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="w-1 bg-black rounded-sm" style={{ height: `${4 + i * 2}px` }} />
-            ))}
-          </div>
-          <span className="text-xs">5G</span>
-          <div className="w-7 h-3 border border-black rounded-sm relative">
-            <div className="absolute inset-0.5 bg-black rounded-xs" style={{ width: '80%' }} />
-          </div>
-        </div>
-      </div>
-
       {/* Header */}
       <header className="bg-white px-6 py-4 border-b border-gray-100">
         <div className="flex items-center justify-between">
@@ -1117,7 +1101,7 @@ export default function ThinkFlowApp() {
           {[
             { id: 'record' as TabType, icon: 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z', label: 'Aufnehmen' },
             { id: 'thoughts' as TabType, icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', label: 'Gedanken', badge: savedThoughts.length || null },
-            { id: 'ideas' as TabType, icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10', label: 'Ideen', badge: existingIdeas.length },
+            { id: 'ideas' as TabType, icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10', label: 'Ideen', badge: userIdeas.length + existingIdeas.length },
           ].map((tab) => (
             <button
               key={tab.id}
