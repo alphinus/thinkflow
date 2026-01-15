@@ -139,3 +139,16 @@ export function useApiConfig() {
     hasValidConfig,
   };
 }
+
+// Hook for current user (multi-user support)
+export function useCurrentUser() {
+  const [currentUser, setCurrentUser] = useLocalStorage<import('../types').UserName | null>(
+    'thinkflow_current_user',
+    null
+  );
+
+  return {
+    currentUser,
+    setCurrentUser,
+  };
+}

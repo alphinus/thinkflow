@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { useLocalStorage, useApiConfig, useUserIdeas } from '@/hooks/useLocalStorage';
+import { useLocalStorage, useApiConfig, useUserIdeas, useCurrentUser } from '@/hooks/useLocalStorage';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { existingIdeas } from '@/lib/ideas';
-import { CATEGORIES, type StructuredThought, type Idea, type DynamicIdea, type TabType } from '@/types';
+import { CATEGORIES, USER_COLORS, type StructuredThought, type Idea, type DynamicIdea, type TabType, type UserName } from '@/types';
 
 export default function ThinkFlowApp() {
   const [activeTab, setActiveTab] = useState<TabType>('record');
@@ -31,6 +31,7 @@ export default function ThinkFlowApp() {
 
   const { config, hasValidConfig } = useApiConfig();
   const { ideas: userIdeas, addIdea, updateIdea, deleteIdea, linkThoughtToIdea, unlinkThoughtFromIdea, getIdeaById } = useUserIdeas();
+  const { currentUser, setCurrentUser } = useCurrentUser();
   const {
     transcript,
     interimTranscript,
@@ -123,7 +124,7 @@ export default function ThinkFlowApp() {
 
   const saveThought = () => {
     if (structuredThought) {
-      setSavedThoughts(prev => [{ ...structuredThought, status: 'standalone' }, ...prev]);
+      setSavedThoughts(prev => [{ ...structuredThought, status: 'standalone', createdBy: currentUser || undefined }, ...prev]);
       setActiveTab('thoughts');
       setStructuredThought(null);
       resetTranscript();
@@ -138,6 +139,7 @@ export default function ThinkFlowApp() {
         ...structuredThought,
         linkedIdeaId: ideaId,
         status: 'linked',
+        createdBy: currentUser || undefined,
       };
       setSavedThoughts(prev => [linkedThought, ...prev]);
       linkThoughtToIdea(ideaId, linkedThought.id);
@@ -167,6 +169,7 @@ export default function ThinkFlowApp() {
         ...structuredThought,
         linkedIdeaId: newIdea.id,
         status: 'converted',
+        createdBy: currentUser || undefined,
       };
       setSavedThoughts(prev => [linkedThought, ...prev]);
 
@@ -311,6 +314,23 @@ export default function ThinkFlowApp() {
               </svg>
             </Link>
           </div>
+        </div>
+        {/* User Switcher */}
+        <div className="flex items-center gap-2 mt-3">
+          <span className="text-xs text-gray-400">Aktiver User:</span>
+          {(['Elvis', 'Mario'] as UserName[]).map((user) => (
+            <button
+              key={user}
+              onClick={() => setCurrentUser(user)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                currentUser === user
+                  ? `${USER_COLORS[user].bg} text-white`
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {user}
+            </button>
+          ))}
         </div>
       </header>
 
@@ -625,9 +645,16 @@ export default function ThinkFlowApp() {
                       <div className={`p-4 ${CATEGORIES[thought.category]?.lightColor || 'bg-gray-50'}`}>
                         <div className="flex items-start justify-between">
                           <div className="flex-1 min-w-0">
-                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full text-white ${CATEGORIES[thought.category]?.color || 'bg-gray-500'}`}>
-                              {thought.category}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full text-white ${CATEGORIES[thought.category]?.color || 'bg-gray-500'}`}>
+                                {thought.category}
+                              </span>
+                              {thought.createdBy && (
+                                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white ${USER_COLORS[thought.createdBy].bg}`}>
+                                  {thought.createdBy[0]}
+                                </span>
+                              )}
+                            </div>
                             <h3 className="font-bold text-gray-900 mt-1.5 text-sm truncate">{thought.title}</h3>
                           </div>
                           <div className="flex items-center gap-2 ml-3">
@@ -1516,12 +1543,30 @@ export default function ThinkFlowApp() {
                             }}
                             className="w-full text-left p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
                           >
-                            <div className="flex items-start justify-between">
+                            <div className="flex items-start gap-3">
+                              {/* User Avatar */}
+                              {thought.createdBy ? (
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0 ${USER_COLORS[thought.createdBy].bg}`}>
+                                  {thought.createdBy[0]}
+                                </div>
+                              ) : (
+                                <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold bg-gray-300 text-gray-600 flex-shrink-0">
+                                  ?
+                                </div>
+                              )}
                               <div className="flex-1 min-w-0">
-                                <p className="font-semibold text-gray-900 text-sm">{thought.title}</p>
-                                <p className="text-xs text-gray-500 mt-1">
-                                  {new Date(thought.createdAt).toLocaleDateString('de-DE')}
-                                </p>
+                                <div className="flex items-center gap-2">
+                                  {thought.createdBy && (
+                                    <span className={`text-xs font-semibold ${USER_COLORS[thought.createdBy].text}`}>
+                                      {thought.createdBy}
+                                    </span>
+                                  )}
+                                  <span className="text-xs text-gray-400">
+                                    {new Date(thought.createdAt).toLocaleDateString('de-DE')}
+                                  </span>
+                                </div>
+                                <p className="font-semibold text-gray-900 text-sm mt-0.5">{thought.title}</p>
+                                <p className="text-xs text-gray-500 mt-1 line-clamp-2">{thought.summary}</p>
                               </div>
                               {totalTasks > 0 && (
                                 <span className={`text-xs font-medium px-2 py-1 rounded-full ${

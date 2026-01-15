@@ -4,6 +4,14 @@
 
 export type AIProvider = 'openai' | 'anthropic' | 'google';
 
+// Multi-User Support
+export type UserName = 'Elvis' | 'Mario';
+
+export const USER_COLORS: Record<UserName, { bg: string; text: string; light: string }> = {
+  'Elvis': { bg: 'bg-blue-500', text: 'text-blue-600', light: 'bg-blue-100' },
+  'Mario': { bg: 'bg-emerald-500', text: 'text-emerald-600', light: 'bg-emerald-100' },
+};
+
 export interface APIConfig {
   provider: AIProvider | null;
   apiKey: string | null;
@@ -31,6 +39,8 @@ export interface StructuredThought {
   // New fields for Gedanken-Ideen workflow
   linkedIdeaId?: number;
   status: ThoughtStatus;
+  // Multi-User Support
+  createdBy?: UserName;
 }
 
 export interface Idea {
@@ -68,6 +78,7 @@ export const STORAGE_KEYS = {
   SAVED_THOUGHTS: 'thinkflow_saved_thoughts',
   CUSTOM_IDEAS: 'thinkflow_custom_ideas',
   USER_IDEAS: 'thinkflow_user_ideas',  // DynamicIdea[] for Gedanken-Ideen workflow
+  CURRENT_USER: 'thinkflow_current_user',  // UserName for multi-user support
 } as const;
 
 // Category Styles
