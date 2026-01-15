@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { useLocalStorage, useApiConfig } from '@/hooks/useLocalStorage';
+import { useLocalStorage, useApiConfig, useUserIdeas } from '@/hooks/useLocalStorage';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { existingIdeas } from '@/lib/ideas';
-import { CATEGORIES, type StructuredThought, type Idea, type TabType } from '@/types';
+import { CATEGORIES, type StructuredThought, type Idea, type DynamicIdea, type TabType } from '@/types';
 
 export default function ThinkFlowApp() {
   const [activeTab, setActiveTab] = useState<TabType>('record');
@@ -20,8 +20,17 @@ export default function ThinkFlowApp() {
   const [processingError, setProcessingError] = useState<string | null>(null);
   const [selectedThought, setSelectedThought] = useState<StructuredThought | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // New states for Gedanken-Ideen workflow
+  const [showIdeaPicker, setShowIdeaPicker] = useState(false);
+  const [showCreateIdeaModal, setShowCreateIdeaModal] = useState(false);
+  const [selectedDynamicIdea, setSelectedDynamicIdea] = useState<DynamicIdea | null>(null);
+  const [newIdeaTitle, setNewIdeaTitle] = useState('');
+  const [newIdeaIcon, setNewIdeaIcon] = useState('💡');
+  const [ideaSearchQuery, setIdeaSearchQuery] = useState('');
+  const [pendingThoughtForIdea, setPendingThoughtForIdea] = useState<StructuredThought | null>(null);
 
   const { config, hasValidConfig } = useApiConfig();
+  const { ideas: userIdeas, addIdea, updateIdea, deleteIdea, linkThoughtToIdea, unlinkThoughtFromIdea, getIdeaById } = useUserIdeas();
   const {
     transcript,
     interimTranscript,
@@ -98,6 +107,7 @@ export default function ThinkFlowApp() {
         })),
         createdAt: new Date().toISOString(),
         relatedIdeas: existingIdeas.filter(i => i.category === result.category).slice(0, 3),
+        status: 'standalone',
       };
 
       setStructuredThought(newThought);
@@ -113,12 +123,110 @@ export default function ThinkFlowApp() {
 
   const saveThought = () => {
     if (structuredThought) {
-      setSavedThoughts(prev => [structuredThought, ...prev]);
+      setSavedThoughts(prev => [{ ...structuredThought, status: 'standalone' }, ...prev]);
       setActiveTab('thoughts');
       setStructuredThought(null);
       resetTranscript();
       setManualTranscript('');
     }
+  };
+
+  // Save thought and link to an existing idea
+  const saveThoughtToIdea = (ideaId: number) => {
+    if (structuredThought) {
+      const linkedThought: StructuredThought = {
+        ...structuredThought,
+        linkedIdeaId: ideaId,
+        status: 'linked',
+      };
+      setSavedThoughts(prev => [linkedThought, ...prev]);
+      linkThoughtToIdea(ideaId, linkedThought.id);
+      setActiveTab('ideas');
+      setStructuredThought(null);
+      setShowIdeaPicker(false);
+      resetTranscript();
+      setManualTranscript('');
+    }
+  };
+
+  // Create a new idea from a thought
+  const createIdeaFromThought = () => {
+    if (structuredThought && newIdeaTitle.trim()) {
+      // Create the new idea
+      const newIdea = addIdea({
+        title: newIdeaTitle.trim(),
+        description: structuredThought.summary,
+        category: structuredThought.category,
+        icon: newIdeaIcon,
+        isUserCreated: true,
+        thoughtIds: [structuredThought.id],
+      });
+
+      // Save the thought with link
+      const linkedThought: StructuredThought = {
+        ...structuredThought,
+        linkedIdeaId: newIdea.id,
+        status: 'converted',
+      };
+      setSavedThoughts(prev => [linkedThought, ...prev]);
+
+      // Reset states
+      setShowCreateIdeaModal(false);
+      setNewIdeaTitle('');
+      setNewIdeaIcon('💡');
+      setStructuredThought(null);
+      setActiveTab('ideas');
+      resetTranscript();
+      setManualTranscript('');
+    }
+  };
+
+  // Link an existing thought to an idea (from thought detail sheet)
+  const linkExistingThoughtToIdea = (thought: StructuredThought, ideaId: number) => {
+    // Update the thought
+    setSavedThoughts(prev => prev.map(t =>
+      t.id === thought.id
+        ? { ...t, linkedIdeaId: ideaId, status: 'linked' as const }
+        : t
+    ));
+    linkThoughtToIdea(ideaId, thought.id);
+    setSelectedThought(null);
+    setShowIdeaPicker(false);
+    setPendingThoughtForIdea(null);
+  };
+
+  // Unlink thought from idea
+  const unlinkThought = (thought: StructuredThought) => {
+    if (thought.linkedIdeaId) {
+      unlinkThoughtFromIdea(thought.linkedIdeaId, thought.id);
+      setSavedThoughts(prev => prev.map(t =>
+        t.id === thought.id
+          ? { ...t, linkedIdeaId: undefined, status: 'standalone' as const }
+          : t
+      ));
+      setSelectedThought(prev => prev ? { ...prev, linkedIdeaId: undefined, status: 'standalone' } : null);
+    }
+  };
+
+  // Get all ideas (user + library converted to DynamicIdea format)
+  const allIdeasForPicker = useMemo(() => {
+    const libraryAsDynamic: DynamicIdea[] = existingIdeas.map(idea => ({
+      id: idea.id,
+      title: idea.title,
+      description: idea.description,
+      category: idea.category,
+      icon: idea.icon,
+      isUserCreated: false,
+      thoughtIds: savedThoughts.filter(t => t.linkedIdeaId === idea.id).map(t => t.id),
+      createdAt: '',
+      updatedAt: '',
+    }));
+    return [...userIdeas, ...libraryAsDynamic];
+  }, [userIdeas, savedThoughts]);
+
+  // Get thoughts for a specific idea
+  const getThoughtsForIdea = (ideaId: number) => {
+    return savedThoughts.filter(t => t.linkedIdeaId === ideaId);
   };
 
   // Toggle task completion in saved thoughts
@@ -478,12 +586,24 @@ export default function ThinkFlowApp() {
                     </div>
                   )}
 
-                  <button
-                    onClick={saveThought}
-                    className="w-full py-3.5 bg-green-500 text-white rounded-xl font-semibold text-sm hover:bg-green-600 transition-colors transform active:scale-98"
-                  >
-                    Gedanken speichern
-                  </button>
+                  {/* Save Options */}
+                  <div className="space-y-2">
+                    <button
+                      onClick={saveThought}
+                      className="w-full py-3.5 bg-green-500 text-white rounded-xl font-semibold text-sm hover:bg-green-600 transition-colors transform active:scale-98"
+                    >
+                      Gedanken speichern
+                    </button>
+                    <button
+                      onClick={() => setShowIdeaPicker(true)}
+                      className="w-full py-3.5 bg-blue-500 text-white rounded-xl font-semibold text-sm hover:bg-blue-600 transition-colors transform active:scale-98 flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                      Zu Idee speichern
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -601,8 +721,8 @@ export default function ThinkFlowApp() {
         {activeTab === 'ideas' && (
           <div className="p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-900">Ideen-Bibliothek</h2>
-              <span className="text-sm text-gray-500">{filteredIdeas.length} von {existingIdeas.length}</span>
+              <h2 className="text-xl font-bold text-gray-900">Ideen</h2>
+              <span className="text-sm text-gray-500">{userIdeas.length + existingIdeas.length} Ideen</span>
             </div>
 
             {/* Search */}
@@ -619,21 +739,87 @@ export default function ThinkFlowApp() {
               />
             </div>
 
-            {/* Category Filter */}
-            <div className="flex gap-2 overflow-x-auto pb-3 mb-4 -mx-6 px-6 scrollbar-hide">
-              <button
-                onClick={() => setFilterCategory('Alle')}
-                className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                  filterCategory === 'Alle'
-                    ? 'bg-black text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                Alle ({existingIdeas.length})
-              </button>
-              {uniqueCategories.map((cat) => {
-                const count = existingIdeas.filter(i => i.category === cat).length;
-                return (
+            {/* My Ideas Section */}
+            {userIdeas.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Meine Ideen</h3>
+                <div className="space-y-3">
+                  {userIdeas
+                    .filter(idea =>
+                      searchQuery === '' ||
+                      idea.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      idea.description.toLowerCase().includes(searchQuery.toLowerCase())
+                    )
+                    .map((idea) => {
+                      const ideaThoughts = getThoughtsForIdea(idea.id);
+                      const completedTasks = ideaThoughts.flatMap(t => t.tasks).filter(t => t.completed).length;
+                      const totalTasks = ideaThoughts.flatMap(t => t.tasks).length;
+
+                      return (
+                        <button
+                          key={`user-${idea.id}`}
+                          onClick={() => setSelectedDynamicIdea(idea)}
+                          className="w-full text-left bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-all active:scale-[0.98] group"
+                        >
+                          <div className={`p-4 ${CATEGORIES[idea.category]?.lightColor || 'bg-blue-50'}`}>
+                            <div className="flex items-center gap-3">
+                              <span className="text-2xl">{idea.icon}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full text-white ${CATEGORIES[idea.category]?.color || 'bg-blue-500'}`}>
+                                    {idea.category}
+                                  </span>
+                                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                                    Eigene
+                                  </span>
+                                </div>
+                                <h3 className="font-bold text-gray-900 mt-1 text-sm truncate">{idea.title}</h3>
+                              </div>
+                              <svg className="w-5 h-5 text-gray-300 group-hover:text-gray-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                            </div>
+                          </div>
+                          <div className="p-4">
+                            <div className="flex items-center justify-between text-xs text-gray-500">
+                              <span className="flex items-center gap-1">
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                </svg>
+                                {ideaThoughts.length} Gedanken
+                              </span>
+                              {totalTasks > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  {completedTasks}/{totalTasks} erledigt
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
+            {/* Category Filter for Library */}
+            <div className="mb-3">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Ideen-Bibliothek</h3>
+              <div className="flex gap-2 overflow-x-auto pb-3 -mx-6 px-6 scrollbar-hide">
+                <button
+                  onClick={() => setFilterCategory('Alle')}
+                  className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                    filterCategory === 'Alle'
+                      ? 'bg-black text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  Alle
+                </button>
+                {uniqueCategories.map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setFilterCategory(cat)}
@@ -643,63 +829,72 @@ export default function ThinkFlowApp() {
                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     }`}
                   >
-                    {cat} ({count})
+                    {cat}
                   </button>
-                );
-              })}
+                ))}
+              </div>
             </div>
 
-            {/* Ideas List */}
+            {/* Library Ideas List */}
             <div className="space-y-3">
-              {filteredIdeas.map((idea) => (
-                <button
-                  key={idea.id}
-                  onClick={() => setSelectedIdea(selectedIdea?.id === idea.id ? null : idea)}
-                  className={`w-full text-left bg-white rounded-2xl shadow-sm overflow-hidden transition-all ${
-                    selectedIdea?.id === idea.id ? 'ring-2 ring-blue-500' : 'hover:shadow-md'
-                  }`}
-                >
-                  <div className={`p-4 ${CATEGORIES[idea.category]?.lightColor || 'bg-gray-50'}`}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{idea.icon}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full text-white ${CATEGORIES[idea.category]?.color || 'bg-gray-500'}`}>
-                            {idea.category}
-                          </span>
-                          {idea.id > 20 && (
-                            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
-                              NEU
-                            </span>
-                          )}
+              {filteredIdeas
+                .filter(idea =>
+                  searchQuery === '' ||
+                  idea.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  idea.description.toLowerCase().includes(searchQuery.toLowerCase())
+                )
+                .map((idea) => {
+                  const ideaThoughts = getThoughtsForIdea(idea.id);
+                  return (
+                    <button
+                      key={`lib-${idea.id}`}
+                      onClick={() => {
+                        // Convert library idea to DynamicIdea format for detail view
+                        const dynamicIdea: DynamicIdea = {
+                          id: idea.id,
+                          title: idea.title,
+                          description: idea.description,
+                          category: idea.category,
+                          icon: idea.icon,
+                          isUserCreated: false,
+                          thoughtIds: ideaThoughts.map(t => t.id),
+                          createdAt: '',
+                          updatedAt: '',
+                        };
+                        setSelectedDynamicIdea(dynamicIdea);
+                      }}
+                      className="w-full text-left bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-all active:scale-[0.98] group"
+                    >
+                      <div className={`p-4 ${CATEGORIES[idea.category]?.lightColor || 'bg-gray-50'}`}>
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl">{idea.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full text-white ${CATEGORIES[idea.category]?.color || 'bg-gray-500'}`}>
+                                {idea.category}
+                              </span>
+                              {ideaThoughts.length > 0 && (
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                                  {ideaThoughts.length} Gedanken
+                                </span>
+                              )}
+                            </div>
+                            <h3 className="font-bold text-gray-900 mt-1 text-sm truncate">{idea.title}</h3>
+                          </div>
+                          <svg className="w-5 h-5 text-gray-300 group-hover:text-gray-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
                         </div>
-                        <h3 className="font-bold text-gray-900 mt-1 text-sm truncate">{idea.title}</h3>
                       </div>
-                    </div>
-                  </div>
-                  <div className="p-4">
-                    <p className="text-gray-600 text-xs leading-relaxed">{idea.description}</p>
-
-                    {selectedIdea?.id === idea.id && (
-                      <div className="mt-3 pt-3 border-t border-gray-100">
-                        <div
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setManualTranscript(`Ich möchte an "${idea.title}" arbeiten: ${idea.description}`);
-                            setActiveTab('record');
-                          }}
-                          className="w-full py-2.5 bg-black text-white rounded-xl font-semibold text-xs text-center cursor-pointer hover:bg-gray-800 transition-colors"
-                        >
-                          Diese Idee weiterentwickeln
-                        </div>
+                      <div className="p-4">
+                        <p className="text-gray-600 text-xs leading-relaxed line-clamp-2">{idea.description}</p>
                       </div>
-                    )}
-                  </div>
-                </button>
-              ))}
+                    </button>
+                  );
+                })}
             </div>
 
-            {filteredIdeas.length === 0 && (
+            {filteredIdeas.length === 0 && userIdeas.length === 0 && (
               <div className="text-center py-10">
                 <p className="text-gray-500">Keine Ideen gefunden</p>
                 <button
@@ -859,6 +1054,30 @@ export default function ThinkFlowApp() {
                     </svg>
                     Weiterentwickeln
                   </button>
+                  {selectedThought.linkedIdeaId ? (
+                    <button
+                      onClick={() => unlinkThought(selectedThought)}
+                      className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                      </svg>
+                      Von Idee lösen
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setPendingThoughtForIdea(selectedThought);
+                        setShowIdeaPicker(true);
+                      }}
+                      className="w-full py-3 bg-blue-100 text-blue-700 rounded-xl font-semibold text-sm hover:bg-blue-200 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                      Zu Idee hinzufügen
+                    </button>
+                  )}
                   <button
                     onClick={() => setShowDeleteConfirm(true)}
                     className="w-full py-3 text-red-600 text-sm font-medium hover:bg-red-50 rounded-xl transition-colors"
@@ -920,6 +1139,453 @@ export default function ThinkFlowApp() {
           ))}
         </div>
       </nav>
+
+      {/* Idea Picker Modal */}
+      {showIdeaPicker && (
+        <div className="fixed inset-0 z-50 max-w-md mx-auto">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fadeIn"
+            onClick={() => {
+              setShowIdeaPicker(false);
+              setIdeaSearchQuery('');
+              setPendingThoughtForIdea(null);
+            }}
+          />
+          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl animate-slideUp max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="flex justify-center py-3">
+              <div className="w-10 h-1 bg-gray-300 rounded-full" />
+            </div>
+            <div className="px-6 pb-4">
+              <h2 className="text-xl font-bold text-gray-900">Idee auswählen</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                {pendingThoughtForIdea ? 'Gedanken mit einer Idee verknüpfen' : 'Gedanken zu einer Idee speichern'}
+              </p>
+            </div>
+
+            {/* Search */}
+            <div className="px-6 pb-4">
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Ideen durchsuchen..."
+                  value={ideaSearchQuery}
+                  onChange={(e) => setIdeaSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Create New Idea Option */}
+            <div className="px-6 pb-3">
+              <button
+                onClick={() => {
+                  setShowIdeaPicker(false);
+                  setShowCreateIdeaModal(true);
+                }}
+                className="w-full py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Neue Idee erstellen
+              </button>
+            </div>
+
+            {/* Ideas List */}
+            <div className="flex-1 overflow-y-auto px-6 pb-6">
+              {/* User Ideas */}
+              {userIdeas.length > 0 && (
+                <div className="mb-4">
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Meine Ideen</h3>
+                  <div className="space-y-2">
+                    {userIdeas
+                      .filter(idea =>
+                        ideaSearchQuery === '' ||
+                        idea.title.toLowerCase().includes(ideaSearchQuery.toLowerCase()) ||
+                        idea.description.toLowerCase().includes(ideaSearchQuery.toLowerCase())
+                      )
+                      .map((idea) => {
+                        const thoughtCount = getThoughtsForIdea(idea.id).length;
+                        return (
+                          <button
+                            key={`user-${idea.id}`}
+                            onClick={() => {
+                              if (pendingThoughtForIdea) {
+                                linkExistingThoughtToIdea(pendingThoughtForIdea, idea.id);
+                              } else {
+                                saveThoughtToIdea(idea.id);
+                              }
+                            }}
+                            className="w-full text-left p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors flex items-center gap-3"
+                          >
+                            <span className="text-2xl">{idea.icon}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full text-white ${CATEGORIES[idea.category]?.color || 'bg-gray-500'}`}>
+                                  {idea.category}
+                                </span>
+                                <span className="text-xs text-gray-400">{thoughtCount} Gedanken</span>
+                              </div>
+                              <p className="font-semibold text-gray-900 text-sm mt-1 truncate">{idea.title}</p>
+                            </div>
+                            <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* Library Ideas */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Ideen-Bibliothek</h3>
+                <div className="space-y-2">
+                  {existingIdeas
+                    .filter(idea =>
+                      ideaSearchQuery === '' ||
+                      idea.title.toLowerCase().includes(ideaSearchQuery.toLowerCase()) ||
+                      idea.description.toLowerCase().includes(ideaSearchQuery.toLowerCase())
+                    )
+                    .slice(0, 20)
+                    .map((idea) => {
+                      const thoughtCount = getThoughtsForIdea(idea.id).length;
+                      return (
+                        <button
+                          key={`lib-${idea.id}`}
+                          onClick={() => {
+                            if (pendingThoughtForIdea) {
+                              linkExistingThoughtToIdea(pendingThoughtForIdea, idea.id);
+                            } else {
+                              saveThoughtToIdea(idea.id);
+                            }
+                          }}
+                          className="w-full text-left p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors flex items-center gap-3"
+                        >
+                          <span className="text-2xl">{idea.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full text-white ${CATEGORIES[idea.category]?.color || 'bg-gray-500'}`}>
+                                {idea.category}
+                              </span>
+                              {thoughtCount > 0 && (
+                                <span className="text-xs text-gray-400">{thoughtCount} Gedanken</span>
+                              )}
+                            </div>
+                            <p className="font-semibold text-gray-900 text-sm mt-1 truncate">{idea.title}</p>
+                          </div>
+                          <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Idea Detail Sheet */}
+      {selectedDynamicIdea && (
+        <div className="fixed inset-0 z-50 max-w-md mx-auto">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fadeIn"
+            onClick={() => setSelectedDynamicIdea(null)}
+          />
+          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl animate-slideUp max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex justify-center py-3">
+              <div className="w-10 h-1 bg-gray-300 rounded-full" />
+            </div>
+
+            {/* Header */}
+            <div className={`px-6 pb-4 ${CATEGORIES[selectedDynamicIdea.category]?.lightColor || 'bg-blue-50'}`}>
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3 flex-1">
+                  <span className="text-3xl">{selectedDynamicIdea.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full text-white ${CATEGORIES[selectedDynamicIdea.category]?.color || 'bg-blue-500'}`}>
+                        {selectedDynamicIdea.category}
+                      </span>
+                      {selectedDynamicIdea.isUserCreated && (
+                        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-100 text-green-700">
+                          Eigene Idee
+                        </span>
+                      )}
+                    </div>
+                    <h2 className="text-lg font-bold text-gray-900 mt-1">{selectedDynamicIdea.title}</h2>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedDynamicIdea(null)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-white/80 hover:bg-white transition-colors"
+                >
+                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Progress Overview */}
+              {(() => {
+                const ideaThoughts = getThoughtsForIdea(selectedDynamicIdea.id);
+                const allTasks = ideaThoughts.flatMap(t => t.tasks);
+                const completedTasks = allTasks.filter(t => t.completed).length;
+                const totalTasks = allTasks.length;
+                const progress = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+
+                return totalTasks > 0 ? (
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="text-gray-600 font-medium">Gesamtfortschritt</span>
+                      <span className="text-gray-900 font-bold">{completedTasks}/{totalTasks} Aufgaben</span>
+                    </div>
+                    <div className="h-2 bg-white/60 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-blue-500'}`}
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+              {/* Description */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Beschreibung</h3>
+                <p className="text-gray-700 text-sm leading-relaxed">{selectedDynamicIdea.description}</p>
+              </div>
+
+              {/* Linked Thoughts */}
+              {(() => {
+                const ideaThoughts = getThoughtsForIdea(selectedDynamicIdea.id);
+                return ideaThoughts.length > 0 ? (
+                  <div>
+                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                      Verknüpfte Gedanken ({ideaThoughts.length})
+                    </h3>
+                    <div className="space-y-3">
+                      {ideaThoughts.map((thought) => {
+                        const completedTasks = thought.tasks.filter(t => t.completed).length;
+                        const totalTasks = thought.tasks.length;
+                        return (
+                          <button
+                            key={thought.id}
+                            onClick={() => {
+                              setSelectedDynamicIdea(null);
+                              setSelectedThought(thought);
+                            }}
+                            className="w-full text-left p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-gray-900 text-sm">{thought.title}</p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {new Date(thought.createdAt).toLocaleDateString('de-DE')}
+                                </p>
+                              </div>
+                              {totalTasks > 0 && (
+                                <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                                  completedTasks === totalTasks
+                                    ? 'bg-green-100 text-green-700'
+                                    : 'bg-gray-200 text-gray-600'
+                                }`}>
+                                  {completedTasks}/{totalTasks}
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-6 bg-gray-50 rounded-xl">
+                    <p className="text-gray-500 text-sm">Noch keine Gedanken verknüpft</p>
+                    <p className="text-gray-400 text-xs mt-1">Füge Gedanken hinzu, um diese Idee zu entwickeln</p>
+                  </div>
+                );
+              })()}
+
+              {/* All Tasks Aggregated */}
+              {(() => {
+                const ideaThoughts = getThoughtsForIdea(selectedDynamicIdea.id);
+                const allTasks = ideaThoughts.flatMap(t =>
+                  t.tasks.map(task => ({ ...task, thoughtId: t.id, thoughtTitle: t.title }))
+                );
+                const pendingTasks = allTasks.filter(t => !t.completed);
+
+                return pendingTasks.length > 0 ? (
+                  <div>
+                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                      Offene Aufgaben ({pendingTasks.length})
+                    </h3>
+                    <div className="space-y-2">
+                      {pendingTasks.slice(0, 10).map((task) => (
+                        <div key={`${task.thoughtId}-${task.id}`} className="flex items-center gap-2.5 p-3 bg-gray-50 rounded-xl">
+                          <button
+                            onClick={() => toggleTaskInSaved(task.thoughtId, task.id)}
+                            className="w-5 h-5 rounded-full border-2 border-gray-300 hover:border-gray-400 flex items-center justify-center transition-all flex-shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm text-gray-700">{task.text}</span>
+                            <p className="text-xs text-gray-400 mt-0.5">{task.thoughtTitle}</p>
+                          </div>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            task.priority === 'Hoch' ? 'bg-red-100 text-red-600' :
+                            task.priority === 'Mittel' ? 'bg-amber-100 text-amber-600' :
+                            'bg-gray-100 text-gray-500'
+                          }`}>
+                            {task.priority}
+                          </span>
+                        </div>
+                      ))}
+                      {pendingTasks.length > 10 && (
+                        <p className="text-center text-xs text-gray-400 py-2">
+                          + {pendingTasks.length - 10} weitere Aufgaben
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+            </div>
+
+            {/* Actions */}
+            <div className="px-6 py-4 border-t border-gray-100 bg-white space-y-2 pb-safe">
+              <button
+                onClick={() => {
+                  setManualTranscript(`Ich möchte an "${selectedDynamicIdea.title}" weiterarbeiten: ${selectedDynamicIdea.description}`);
+                  setSelectedDynamicIdea(null);
+                  setActiveTab('record');
+                }}
+                className="w-full py-3.5 bg-black text-white rounded-xl font-semibold text-sm hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Neuen Gedanken hinzufügen
+              </button>
+              {selectedDynamicIdea.isUserCreated && (
+                <button
+                  onClick={() => {
+                    const ideaThoughts = getThoughtsForIdea(selectedDynamicIdea.id);
+                    if (ideaThoughts.length > 0) {
+                      alert(`Diese Idee hat ${ideaThoughts.length} verknüpfte Gedanken. Entferne zuerst alle Gedanken, bevor du die Idee löschen kannst.`);
+                    } else {
+                      if (confirm('Möchtest du diese Idee wirklich löschen?')) {
+                        deleteIdea(selectedDynamicIdea.id);
+                        setSelectedDynamicIdea(null);
+                      }
+                    }
+                  }}
+                  className="w-full py-3 text-red-600 text-sm font-medium hover:bg-red-50 rounded-xl transition-colors"
+                >
+                  Idee löschen
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Idea Modal */}
+      {showCreateIdeaModal && (
+        <div className="fixed inset-0 z-50 max-w-md mx-auto">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fadeIn"
+            onClick={() => {
+              setShowCreateIdeaModal(false);
+              setNewIdeaTitle('');
+              setNewIdeaIcon('💡');
+            }}
+          />
+          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl animate-slideUp">
+            <div className="flex justify-center py-3">
+              <div className="w-10 h-1 bg-gray-300 rounded-full" />
+            </div>
+            <div className="px-6 pb-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-4">Neue Idee erstellen</h2>
+
+              {/* Icon Picker */}
+              <div className="mb-4">
+                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 block">Icon</label>
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                  {['💡', '🚀', '🎯', '⭐', '🔥', '💎', '🌟', '✨', '💪', '🎨', '📚', '🏆', '🌱', '🔮', '💫'].map((icon) => (
+                    <button
+                      key={icon}
+                      onClick={() => setNewIdeaIcon(icon)}
+                      className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl transition-all ${
+                        newIdeaIcon === icon
+                          ? 'bg-blue-100 ring-2 ring-blue-500'
+                          : 'bg-gray-100 hover:bg-gray-200'
+                      }`}
+                    >
+                      {icon}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Title Input */}
+              <div className="mb-4">
+                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 block">Titel</label>
+                <input
+                  type="text"
+                  value={newIdeaTitle}
+                  onChange={(e) => setNewIdeaTitle(e.target.value)}
+                  placeholder="Name deiner Idee..."
+                  className="w-full px-4 py-3 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  autoFocus
+                />
+              </div>
+
+              {/* Preview */}
+              {structuredThought && (
+                <div className="mb-4 p-3 bg-gray-50 rounded-xl">
+                  <p className="text-xs text-gray-500 mb-1">Verknüpfter Gedanke:</p>
+                  <p className="text-sm font-medium text-gray-700">{structuredThought.title}</p>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowCreateIdeaModal(false);
+                    setNewIdeaTitle('');
+                    setNewIdeaIcon('💡');
+                    setShowIdeaPicker(true);
+                  }}
+                  className="flex-1 py-3.5 bg-gray-100 text-gray-700 rounded-xl font-semibold text-sm"
+                >
+                  Zurück
+                </button>
+                <button
+                  onClick={createIdeaFromThought}
+                  disabled={!newIdeaTitle.trim()}
+                  className={`flex-1 py-3.5 rounded-xl font-semibold text-sm transition-all ${
+                    newIdeaTitle.trim()
+                      ? 'bg-blue-500 text-white hover:bg-blue-600'
+                      : 'bg-gray-200 text-gray-400'
+                  }`}
+                >
+                  Erstellen
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

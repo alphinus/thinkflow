@@ -17,6 +17,8 @@ export interface ActionItem {
   completed: boolean;
 }
 
+export type ThoughtStatus = 'standalone' | 'linked' | 'converted';
+
 export interface StructuredThought {
   id: number;
   title: string;
@@ -26,6 +28,9 @@ export interface StructuredThought {
   tasks: ActionItem[];
   createdAt: string;
   relatedIdeas: Idea[];
+  // New fields for Gedanken-Ideen workflow
+  linkedIdeaId?: number;
+  status: ThoughtStatus;
 }
 
 export interface Idea {
@@ -34,6 +39,19 @@ export interface Idea {
   title: string;
   description: string;
   icon: string;
+}
+
+// Dynamic Idea - can be user-created or from library, holds linked thoughts
+export interface DynamicIdea {
+  id: number;
+  title: string;
+  description: string;
+  category: string;
+  icon: string;
+  isUserCreated: boolean;  // true = user created, false = from library
+  thoughtIds: number[];    // IDs of linked thoughts
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CategoryStyle {
@@ -49,6 +67,7 @@ export const STORAGE_KEYS = {
   API_CONFIG: 'thinkflow_api_config',
   SAVED_THOUGHTS: 'thinkflow_saved_thoughts',
   CUSTOM_IDEAS: 'thinkflow_custom_ideas',
+  USER_IDEAS: 'thinkflow_user_ideas',  // DynamicIdea[] for Gedanken-Ideen workflow
 } as const;
 
 // Category Styles

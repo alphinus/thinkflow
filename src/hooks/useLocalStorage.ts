@@ -35,6 +35,77 @@ export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T 
   return [storedValue, setValue];
 }
 
+// Hook for user ideas (DynamicIdea[])
+export function useUserIdeas() {
+  const [ideas, setIdeas] = useLocalStorage<import('../types').DynamicIdea[]>(
+    'thinkflow_user_ideas',
+    []
+  );
+
+  const addIdea = useCallback((idea: Omit<import('../types').DynamicIdea, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const now = new Date().toISOString();
+    const newIdea: import('../types').DynamicIdea = {
+      ...idea,
+      id: Date.now(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    setIdeas(prev => [newIdea, ...prev]);
+    return newIdea;
+  }, [setIdeas]);
+
+  const updateIdea = useCallback((id: number, updates: Partial<import('../types').DynamicIdea>) => {
+    setIdeas(prev => prev.map(idea =>
+      idea.id === id
+        ? { ...idea, ...updates, updatedAt: new Date().toISOString() }
+        : idea
+    ));
+  }, [setIdeas]);
+
+  const deleteIdea = useCallback((id: number) => {
+    setIdeas(prev => prev.filter(idea => idea.id !== id));
+  }, [setIdeas]);
+
+  const linkThoughtToIdea = useCallback((ideaId: number, thoughtId: number) => {
+    setIdeas(prev => prev.map(idea =>
+      idea.id === ideaId
+        ? {
+            ...idea,
+            thoughtIds: [...idea.thoughtIds, thoughtId],
+            updatedAt: new Date().toISOString()
+          }
+        : idea
+    ));
+  }, [setIdeas]);
+
+  const unlinkThoughtFromIdea = useCallback((ideaId: number, thoughtId: number) => {
+    setIdeas(prev => prev.map(idea =>
+      idea.id === ideaId
+        ? {
+            ...idea,
+            thoughtIds: idea.thoughtIds.filter(id => id !== thoughtId),
+            updatedAt: new Date().toISOString()
+          }
+        : idea
+    ));
+  }, [setIdeas]);
+
+  const getIdeaById = useCallback((id: number) => {
+    return ideas.find(idea => idea.id === id);
+  }, [ideas]);
+
+  return {
+    ideas,
+    setIdeas,
+    addIdea,
+    updateIdea,
+    deleteIdea,
+    linkThoughtToIdea,
+    unlinkThoughtFromIdea,
+    getIdeaById,
+  };
+}
+
 // Hook specifically for API config with validation status
 export function useApiConfig() {
   const [config, setConfig] = useLocalStorage<{
