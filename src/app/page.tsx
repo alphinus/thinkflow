@@ -18,6 +18,8 @@ export default function ThinkFlowApp() {
   const [waveHeights, setWaveHeights] = useState(Array(12).fill(8));
   const [manualTranscript, setManualTranscript] = useState('');
   const [processingError, setProcessingError] = useState<string | null>(null);
+  const [selectedThought, setSelectedThought] = useState<StructuredThought | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const { config, hasValidConfig } = useApiConfig();
   const {
@@ -117,6 +119,48 @@ export default function ThinkFlowApp() {
       resetTranscript();
       setManualTranscript('');
     }
+  };
+
+  // Toggle task completion in saved thoughts
+  const toggleTaskInSaved = (thoughtId: number, taskId: number) => {
+    setSavedThoughts(prev => prev.map(thought => {
+      if (thought.id === thoughtId) {
+        return {
+          ...thought,
+          tasks: thought.tasks.map(task =>
+            task.id === taskId ? { ...task, completed: !task.completed } : task
+          ),
+        };
+      }
+      return thought;
+    }));
+    // Also update selectedThought if it's the same one
+    setSelectedThought(prev => {
+      if (prev && prev.id === thoughtId) {
+        return {
+          ...prev,
+          tasks: prev.tasks.map(task =>
+            task.id === taskId ? { ...task, completed: !task.completed } : task
+          ),
+        };
+      }
+      return prev;
+    });
+  };
+
+  // Delete thought
+  const deleteThought = (id: number) => {
+    setSavedThoughts(prev => prev.filter(t => t.id !== id));
+    setSelectedThought(null);
+    setShowDeleteConfirm(false);
+  };
+
+  // Continue developing a thought
+  const continueThought = (thought: StructuredThought) => {
+    const context = `Weiterentwicklung von "${thought.title}":\n\nBisherige Kernpunkte:\n${thought.keyPoints.map(p => `• ${p}`).join('\n')}\n\nZusammenfassung: ${thought.summary}`;
+    setManualTranscript(context);
+    setSelectedThought(null);
+    setActiveTab('record');
   };
 
   // Filter and search
@@ -463,39 +507,91 @@ export default function ThinkFlowApp() {
               </div>
             ) : (
               <div className="space-y-3">
-                {savedThoughts.map((thought) => (
-                  <div key={thought.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                    <div className={`p-4 ${CATEGORIES[thought.category]?.lightColor || 'bg-gray-50'}`}>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full text-white ${CATEGORIES[thought.category]?.color || 'bg-gray-500'}`}>
-                            {thought.category}
-                          </span>
-                          <h3 className="font-bold text-gray-900 mt-1.5 text-sm">{thought.title}</h3>
+                {savedThoughts.map((thought) => {
+                  const completedTasks = thought.tasks?.filter(t => t.completed).length || 0;
+                  const totalTasks = thought.tasks?.length || 0;
+                  const progress = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+
+                  return (
+                    <button
+                      key={thought.id}
+                      onClick={() => setSelectedThought(thought)}
+                      className="w-full text-left bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-all duration-200 active:scale-[0.98] group"
+                    >
+                      <div className={`p-4 ${CATEGORIES[thought.category]?.lightColor || 'bg-gray-50'}`}>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full text-white ${CATEGORIES[thought.category]?.color || 'bg-gray-500'}`}>
+                              {thought.category}
+                            </span>
+                            <h3 className="font-bold text-gray-900 mt-1.5 text-sm truncate">{thought.title}</h3>
+                          </div>
+                          <div className="flex items-center gap-2 ml-3">
+                            <span className="text-xs text-gray-400">
+                              {new Date(thought.createdAt).toLocaleDateString('de-DE')}
+                            </span>
+                            <svg className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </div>
                         </div>
-                        <span className="text-xs text-gray-400">
-                          {new Date(thought.createdAt).toLocaleDateString('de-DE')}
-                        </span>
                       </div>
-                    </div>
-                    <div className="p-4">
-                      <div className="flex items-center gap-4 text-xs text-gray-500">
-                        <span className="flex items-center gap-1">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                          </svg>
-                          {thought.tasks?.length || 0} Aufgaben
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                          {thought.tasks?.filter(t => t.completed).length || 0} erledigt
-                        </span>
+                      <div className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4 text-xs text-gray-500">
+                            <span className="flex items-center gap-1">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                              </svg>
+                              {totalTasks} Aufgaben
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                              {completedTasks} erledigt
+                            </span>
+                          </div>
+                          {/* Progress Ring */}
+                          {totalTasks > 0 && (
+                            <div className="relative w-8 h-8">
+                              <svg className="w-8 h-8 transform -rotate-90">
+                                <circle
+                                  cx="16"
+                                  cy="16"
+                                  r="12"
+                                  stroke="currentColor"
+                                  strokeWidth="3"
+                                  fill="none"
+                                  className="text-gray-100"
+                                />
+                                <circle
+                                  cx="16"
+                                  cy="16"
+                                  r="12"
+                                  stroke="currentColor"
+                                  strokeWidth="3"
+                                  fill="none"
+                                  strokeLinecap="round"
+                                  className={progress === 100 ? 'text-green-500' : 'text-blue-500'}
+                                  strokeDasharray={`${progress * 0.754} 75.4`}
+                                  style={{ transition: 'stroke-dasharray 0.3s ease' }}
+                                />
+                              </svg>
+                              {progress === 100 && (
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                  <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -617,6 +713,184 @@ export default function ThinkFlowApp() {
           </div>
         )}
       </main>
+
+      {/* Thought Detail Bottom Sheet */}
+      {selectedThought && (
+        <div className="fixed inset-0 z-50 max-w-md mx-auto">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-fadeIn"
+            onClick={() => {
+              setSelectedThought(null);
+              setShowDeleteConfirm(false);
+            }}
+          />
+
+          {/* Bottom Sheet */}
+          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl animate-slideUp max-h-[85vh] overflow-hidden flex flex-col">
+            {/* Handle */}
+            <div className="flex justify-center py-3">
+              <div className="w-10 h-1 bg-gray-300 rounded-full" />
+            </div>
+
+            {/* Header */}
+            <div className={`px-6 pb-4 ${CATEGORIES[selectedThought.category]?.lightColor || 'bg-gray-50'}`}>
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full text-white ${CATEGORIES[selectedThought.category]?.color || 'bg-gray-500'}`}>
+                    {selectedThought.category}
+                  </span>
+                  <h2 className="text-xl font-bold text-gray-900 mt-2 pr-4">{selectedThought.title}</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {new Date(selectedThought.createdAt).toLocaleDateString('de-DE', {
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric',
+                    })}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setSelectedThought(null);
+                    setShowDeleteConfirm(false);
+                  }}
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-white/80 hover:bg-white transition-colors"
+                >
+                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Progress Bar */}
+              {selectedThought.tasks.length > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-xs mb-1.5">
+                    <span className="text-gray-600 font-medium">Fortschritt</span>
+                    <span className="text-gray-900 font-bold">
+                      {selectedThought.tasks.filter(t => t.completed).length} / {selectedThought.tasks.length}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-white/60 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        selectedThought.tasks.filter(t => t.completed).length === selectedThought.tasks.length
+                          ? 'bg-green-500'
+                          : 'bg-blue-500'
+                      }`}
+                      style={{
+                        width: `${(selectedThought.tasks.filter(t => t.completed).length / selectedThought.tasks.length) * 100}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+              {/* Summary */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Zusammenfassung</h3>
+                <p className="text-gray-700 text-sm leading-relaxed">{selectedThought.summary}</p>
+              </div>
+
+              {/* Key Points */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Kernpunkte</h3>
+                <ul className="space-y-2">
+                  {selectedThought.keyPoints.map((point, i) => (
+                    <li key={i} className="flex items-start gap-2.5">
+                      <span className={`w-5 h-5 rounded-full ${CATEGORIES[selectedThought.category]?.lightColor} ${CATEGORIES[selectedThought.category]?.textColor} flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5`}>
+                        {i + 1}
+                      </span>
+                      <span className="text-gray-700 text-sm">{point}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Tasks */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Aufgaben</h3>
+                <ul className="space-y-2">
+                  {selectedThought.tasks.map((task) => (
+                    <li key={task.id} className="flex items-center gap-2.5 p-3 bg-gray-50 rounded-xl">
+                      <button
+                        onClick={() => toggleTaskInSaved(selectedThought.id, task.id)}
+                        className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 active:scale-90 ${
+                          task.completed
+                            ? 'bg-green-500 border-green-500'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        {task.completed && (
+                          <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </button>
+                      <span className={`flex-1 text-sm ${task.completed ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                        {task.text}
+                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        task.priority === 'Hoch' ? 'bg-red-100 text-red-600' :
+                        task.priority === 'Mittel' ? 'bg-amber-100 text-amber-600' :
+                        'bg-gray-100 text-gray-500'
+                      }`}>
+                        {task.priority}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="px-6 py-4 border-t border-gray-100 bg-white space-y-2 pb-safe">
+              {!showDeleteConfirm ? (
+                <>
+                  <button
+                    onClick={() => continueThought(selectedThought)}
+                    className="w-full py-3.5 bg-black text-white rounded-xl font-semibold text-sm hover:bg-gray-800 transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Weiterentwickeln
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="w-full py-3 text-red-600 text-sm font-medium hover:bg-red-50 rounded-xl transition-colors"
+                  >
+                    Gedanken löschen
+                  </button>
+                </>
+              ) : (
+                <div className="animate-fadeIn">
+                  <p className="text-center text-gray-600 text-sm mb-3">
+                    Möchtest du diesen Gedanken wirklich löschen?
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-200 transition-colors"
+                    >
+                      Abbrechen
+                    </button>
+                    <button
+                      onClick={() => deleteThought(selectedThought.id)}
+                      className="flex-1 py-3 bg-red-500 text-white rounded-xl font-semibold text-sm hover:bg-red-600 transition-colors"
+                    >
+                      Löschen
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tab Bar */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-lg border-t border-gray-200 px-8 pt-2 pb-6 pb-safe max-w-md mx-auto">
