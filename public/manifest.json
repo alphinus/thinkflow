@@ -1,0 +1,28 @@
+{
+  "name": "ThinkFlow",
+  "short_name": "ThinkFlow",
+  "description": "Verwandle deine gesprochenen Gedanken in strukturierte Ideen mit KI-Unterstützung.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#3b82f6",
+  "orientation": "portrait",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "lang": "de",
+  "dir": "ltr"
+}
