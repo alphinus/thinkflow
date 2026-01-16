@@ -6,7 +6,7 @@ import { useApiConfig, useCurrentUser } from '@/hooks/useLocalStorage';
 import { useFamilyAuth, useCloudIdeas, useCloudThoughts, migrateLocalStorageToCloud } from '@/hooks/useSupabase';
 import FamilyCodeModal from '@/components/FamilyCodeModal';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
-import { existingIdeas } from '@/lib/ideas';
+// existingIdeas removed - all ideas now come from cloud via userIdeas
 import { CATEGORIES, USER_COLORS, type StructuredThought, type Idea, type DynamicIdea, type TabType, type UserName } from '@/types';
 
 export default function ThinkFlowApp() {
@@ -149,7 +149,7 @@ export default function ThinkFlowApp() {
           completed: false,
         })),
         createdAt: new Date().toISOString(),
-        relatedIdeas: existingIdeas.filter(i => i.category === result.category).slice(0, 3),
+        relatedIdeas: userIdeas.filter(i => i.category === result.category).slice(0, 3),
         status: 'linked',
         linkedIdeaId: selectedDynamicIdea?.id,
         createdBy: currentUser || undefined,
@@ -230,7 +230,7 @@ export default function ThinkFlowApp() {
           completed: false,
         })),
         createdAt: new Date().toISOString(),
-        relatedIdeas: existingIdeas.filter(i => i.category === result.category).slice(0, 3),
+        relatedIdeas: userIdeas.filter(i => i.category === result.category).slice(0, 3),
         status: 'standalone',
       };
 
@@ -328,21 +328,10 @@ export default function ThinkFlowApp() {
     }
   };
 
-  // Get all ideas (user + library converted to DynamicIdea format)
+  // Get all ideas (now all from cloud)
   const allIdeasForPicker = useMemo(() => {
-    const libraryAsDynamic: DynamicIdea[] = existingIdeas.map(idea => ({
-      id: idea.id,
-      title: idea.title,
-      description: idea.description,
-      category: idea.category,
-      icon: idea.icon,
-      isUserCreated: false,
-      thoughtIds: savedThoughts.filter(t => t.linkedIdeaId === idea.id).map(t => t.id),
-      createdAt: '',
-      updatedAt: '',
-    }));
-    return [...userIdeas, ...libraryAsDynamic];
-  }, [userIdeas, savedThoughts]);
+    return userIdeas;
+  }, [userIdeas]);
 
   // Get thoughts for a specific idea
   const getThoughtsForIdea = (ideaId: number) => {
@@ -388,7 +377,7 @@ export default function ThinkFlowApp() {
   };
 
   // Filter and search
-  const filteredIdeas = existingIdeas.filter(idea => {
+  const filteredIdeas = userIdeas.filter(idea => {
     const matchesCategory = filterCategory === 'Alle' || idea.category === filterCategory;
     const matchesSearch = searchQuery === '' ||
       idea.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -396,8 +385,8 @@ export default function ThinkFlowApp() {
     return matchesCategory && matchesSearch;
   });
 
-  // Unique categories
-  const uniqueCategories = [...new Set(existingIdeas.map(i => i.category))];
+  // Unique categories from cloud ideas
+  const uniqueCategories = [...new Set(userIdeas.map(i => i.category))];
 
   // Migration handler
   const handleMigration = async (familyId: string) => {
@@ -568,7 +557,7 @@ export default function ThinkFlowApp() {
                 Schnellstart mit einer Idee
               </h3>
               <div className="flex gap-2 overflow-x-auto pb-2 -mx-6 px-6 scrollbar-hide">
-                {existingIdeas.slice(20, 28).map((idea) => (
+                {userIdeas.slice(0, 8).map((idea) => (
                   <button
                     key={idea.id}
                     onClick={() => {
@@ -879,7 +868,7 @@ export default function ThinkFlowApp() {
           <div className="p-4 sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg sm:text-xl font-bold text-gray-900">Ideen</h2>
-              <span className="text-xs sm:text-sm text-gray-500">{userIdeas.length + existingIdeas.length} Ideen</span>
+              <span className="text-xs sm:text-sm text-gray-500">{userIdeas.length} Ideen</span>
             </div>
 
             {/* Search & Sort Row */}
@@ -1450,7 +1439,7 @@ export default function ThinkFlowApp() {
           {[
             { id: 'record' as TabType, icon: 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z', label: 'Aufnehmen' },
             { id: 'thoughts' as TabType, icon: 'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z', label: 'Gedanken', badge: savedThoughts.length || null },
-            { id: 'ideas' as TabType, icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10', label: 'Ideen', badge: userIdeas.length + existingIdeas.length },
+            { id: 'ideas' as TabType, icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10', label: 'Ideen', badge: userIdeas.length },
             { id: 'dashboard' as TabType, icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z', label: 'Übersicht' },
           ].map((tab) => (
             <button
@@ -1530,10 +1519,10 @@ export default function ThinkFlowApp() {
 
             {/* Ideas List */}
             <div className="flex-1 overflow-y-auto px-6 pb-6">
-              {/* User Ideas */}
+              {/* All Ideas from Cloud */}
               {userIdeas.length > 0 && (
                 <div className="mb-4">
-                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Meine Ideen</h3>
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Alle Ideen</h3>
                   <div className="space-y-2">
                     {userIdeas
                       .filter(idea =>
@@ -1575,51 +1564,7 @@ export default function ThinkFlowApp() {
                 </div>
               )}
 
-              {/* Library Ideas */}
-              <div>
-                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Ideen-Bibliothek</h3>
-                <div className="space-y-2">
-                  {existingIdeas
-                    .filter(idea =>
-                      ideaSearchQuery === '' ||
-                      idea.title.toLowerCase().includes(ideaSearchQuery.toLowerCase()) ||
-                      idea.description.toLowerCase().includes(ideaSearchQuery.toLowerCase())
-                    )
-                    .slice(0, 20)
-                    .map((idea) => {
-                      const thoughtCount = getThoughtsForIdea(idea.id).length;
-                      return (
-                        <button
-                          key={`lib-${idea.id}`}
-                          onClick={() => {
-                            if (pendingThoughtForIdea) {
-                              linkExistingThoughtToIdea(pendingThoughtForIdea, idea.id);
-                            } else {
-                              saveThoughtToIdea(idea.id);
-                            }
-                          }}
-                          className="w-full text-left p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors flex items-center gap-3"
-                        >
-                          <span className="text-2xl">{idea.icon}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full text-white ${CATEGORIES[idea.category]?.color || 'bg-gray-500'}`}>
-                                {idea.category}
-                              </span>
-                              {thoughtCount > 0 && (
-                                <span className="text-xs text-gray-400">{thoughtCount} Gedanken</span>
-                              )}
-                            </div>
-                            <p className="font-semibold text-gray-900 text-sm mt-1 truncate">{idea.title}</p>
-                          </div>
-                          <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                          </svg>
-                        </button>
-                      );
-                    })}
-                </div>
-              </div>
+              {/* All ideas now come from cloud (userIdeas) - no separate library section needed */}
             </div>
           </div>
         </div>
