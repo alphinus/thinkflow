@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.25.0",
+    "@supabase/supabase-js": "^2.90.1",
     "next": "^14.2.0",
     "next-pwa": "^5.6.0",
     "openai": "^4.0.0",
